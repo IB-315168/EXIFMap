@@ -1,26 +1,34 @@
 package com.ib315168.exifmap;
 
+import android.content.DialogInterface;
 import android.net.Uri;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.ImageView;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.bumptech.glide.Glide;
 import com.drew.imaging.ImageMetadataReader;
 import com.drew.imaging.ImageProcessingException;
+import com.drew.lang.GeoLocation;
 import com.drew.metadata.Directory;
 import com.drew.metadata.Metadata;
 import com.drew.metadata.Tag;
+import com.drew.metadata.exif.GpsDirectory;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Collection;
 
 public class MainActivity extends AppCompatActivity {
-    InputStream selectedImage;
     Metadata metadata;
+    ImageView imageView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -28,6 +36,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         Button button = (Button) findViewById(R.id.button);
+        imageView = (ImageView) findViewById(R.id.imageView);
         /*  Previous approach
             ActivityResultLauncher<PickVisualMediaRequest> pickMedia =
                 registerForActivityResult(new ActivityResultContracts.PickVisualMedia(), uri -> {
@@ -46,6 +55,7 @@ public class MainActivity extends AppCompatActivity {
                 new ActivityResultContracts.GetContent(),
                 uri -> {
                     if (uri != null) {
+                        Log.d("PhotoPicker", "Selected URI: " + uri);
                         processSelectedImage(uri);
                     } else {
                         // Handle case when no image was selected
@@ -60,15 +70,28 @@ public class MainActivity extends AppCompatActivity {
                             .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE)
                             .build());
                 */
-                pickImageLauncher.launch("image/*");
+                AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
+
+                builder.setTitle("Use Google Photos when choosing your image!");
+                builder.setMessage("Otherwise GPS data for your photo might not be available.");
+
+                builder.setCancelable(false);
+                builder.setNeutralButton("Ok",(DialogInterface.OnClickListener) (dialog, which) -> {
+                    dialog.cancel();
+                    pickImageLauncher.launch("image/*");
+                });
+                AlertDialog alertDialog = builder.create();
+                alertDialog.show();
             }
         });
     }
 
     private void processSelectedImage(Uri uri) {
         try {
-            selectedImage = getContentResolver().openInputStream(uri);
-            metadata = ImageMetadataReader.readMetadata(selectedImage);
+            InputStream inputStream = getContentResolver().openInputStream(uri);
+            metadata = ImageMetadataReader.readMetadata(inputStream);
+
+            GeoLocation location = null;
 
             for (Directory directory : metadata.getDirectories()) {
                 for (Tag tag : directory.getTags()) {
@@ -76,7 +99,34 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
 
-            selectedImage.close();
+            Collection<GpsDirectory> gpsDirectories = metadata.getDirectoriesOfType(GpsDirectory.class);
+            for (GpsDirectory gpsDirectory : gpsDirectories) {
+                GeoLocation geoLocation = gpsDirectory.getGeoLocation();
+                if (geoLocation != null && !geoLocation.isZero()) {
+                    System.out.println(geoLocation.toString());
+
+                    // Add to our collection for use below
+                    location = geoLocation;
+                    break;
+                } else {
+                    System.out.println("Geo empty");
+
+                }
+            }
+
+            if (location != null) {
+                StringBuilder staticMap = new StringBuilder();
+                staticMap.append("https://maps.geoapify.com/v1/staticmap?style=osm-bright-smooth&width=600&height=400&center=lonlat:");
+                staticMap.append(location.getLongitude());
+                staticMap.append(",");
+                staticMap.append(location.getLatitude());
+                staticMap.append("&zoom=14&marker=lonlat:");
+                staticMap.append(location.getLongitude());
+                staticMap.append(",");
+                staticMap.append(location.getLatitude());
+                staticMap.append(";color:%23ff0000;size:medium&apiKey=dcfc1dd590bd4f0d91a29a3253b604b0");
+                Glide.with(this).load(staticMap.toString()).into(imageView);
+            }
         } catch (ImageProcessingException | IOException e) {
             throw new RuntimeException(e);
         }
