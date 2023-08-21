@@ -1,16 +1,22 @@
 package com.ib315168.exifmap;
 
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.DialogInterface;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -27,10 +33,16 @@ import com.drew.metadata.Metadata;
 import com.drew.metadata.Tag;
 import com.drew.metadata.exif.GpsDirectory;
 
+import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.text.SimpleDateFormat;
 import java.util.Collection;
+import java.util.Date;
+import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 
 public class MainActivity extends AppCompatActivity {
@@ -127,11 +139,11 @@ public class MainActivity extends AppCompatActivity {
                 staticMapUrl.append(location.getLongitude());
                 staticMapUrl.append(",");
                 staticMapUrl.append(location.getLatitude());
-                staticMapUrl.append("&zoom=14&marker=lonlat:");
+                staticMapUrl.append("&zoom=10&marker=lonlat:");
                 staticMapUrl.append(location.getLongitude());
                 staticMapUrl.append(",");
                 staticMapUrl.append(location.getLatitude());
-                staticMapUrl.append(";color:%23ff0000;size:medium&apiKey=dcfc1dd590bd4f0d91a29a3253b604b0");
+                staticMapUrl.append(";color:%23ff0000;size:large&apiKey=dcfc1dd590bd4f0d91a29a3253b604b0");
 
                 new LoadImageTask().execute(staticMapUrl.toString(), uri.toString());
             }
@@ -144,10 +156,49 @@ public class MainActivity extends AppCompatActivity {
         Bitmap combinedBitmap = Bitmap.createBitmap(background.getWidth(), background.getHeight(), Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(combinedBitmap);
 
+        Bitmap scaledMap = Bitmap.createScaledBitmap(map, 1200, 800, true);
+
         canvas.drawBitmap(background, 0, 0, null);
-        canvas.drawBitmap(map, (background.getWidth()/2), (background.getHeight()/2), null);
+        canvas.drawBitmap(scaledMap, (background.getWidth()/2), (background.getHeight()/2), null);
 
         return combinedBitmap;
+    }
+
+    private void saveBitmapToGallery(Bitmap bitmap) {
+        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+        String fileName = "IMG_" + timeStamp + ".jpg";
+
+        // Get the storage directory
+        File storageDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
+        File imageFile = new File(storageDir, fileName);
+
+        try {
+            OutputStream outputStream = new FileOutputStream(imageFile);
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream);
+            outputStream.flush();
+            outputStream.close();
+
+            // Insert the image into the media store
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Images.Media.TITLE, "Image Title");
+            values.put(MediaStore.Images.Media.DESCRIPTION, "Image Description");
+            values.put(MediaStore.Images.Media.DATE_TAKEN, System.currentTimeMillis());
+            values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+            values.put(MediaStore.Images.Media.DATA, imageFile.getAbsolutePath());
+
+            ContentResolver contentResolver = getContentResolver();
+            Uri imageUri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+
+            // Notify the system that a new image has been added
+            MediaScannerConnection.scanFile(this, new String[]{imageFile.getAbsolutePath()}, null, null);
+
+            Log.d("PhotoSaver", "Image saved to gallery: " + imageUri);
+            Toast success = new Toast(this);
+            success.setText("Image successfully saved!");
+            success.show();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     private class LoadImageTask extends AsyncTask<String, Void, Bitmap> {
@@ -175,8 +226,8 @@ public class MainActivity extends AppCompatActivity {
             // Here, you can use the loaded bitmap on the UI thread
             if (bitmap != null) {
                 Glide.with(MainActivity.this).load(bitmap).into(imageView);
+                saveBitmapToGallery(bitmap);
             }
         }
-
     }
 }
