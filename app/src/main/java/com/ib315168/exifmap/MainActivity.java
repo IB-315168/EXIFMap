@@ -1,7 +1,11 @@
 package com.ib315168.exifmap;
 
 import android.content.DialogInterface;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -14,6 +18,7 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.request.FutureTarget;
 import com.drew.imaging.ImageMetadataReader;
 import com.drew.imaging.ImageProcessingException;
 import com.drew.lang.GeoLocation;
@@ -22,9 +27,11 @@ import com.drew.metadata.Metadata;
 import com.drew.metadata.Tag;
 import com.drew.metadata.exif.GpsDirectory;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collection;
+import java.util.concurrent.ExecutionException;
 
 public class MainActivity extends AppCompatActivity {
     Metadata metadata;
@@ -115,20 +122,61 @@ public class MainActivity extends AppCompatActivity {
             }
 
             if (location != null) {
-                StringBuilder staticMap = new StringBuilder();
-                staticMap.append("https://maps.geoapify.com/v1/staticmap?style=osm-bright-smooth&width=600&height=400&center=lonlat:");
-                staticMap.append(location.getLongitude());
-                staticMap.append(",");
-                staticMap.append(location.getLatitude());
-                staticMap.append("&zoom=14&marker=lonlat:");
-                staticMap.append(location.getLongitude());
-                staticMap.append(",");
-                staticMap.append(location.getLatitude());
-                staticMap.append(";color:%23ff0000;size:medium&apiKey=dcfc1dd590bd4f0d91a29a3253b604b0");
-                Glide.with(this).load(staticMap.toString()).into(imageView);
+                StringBuilder staticMapUrl = new StringBuilder();
+                staticMapUrl.append("https://maps.geoapify.com/v1/staticmap?style=osm-bright-smooth&width=600&height=400&center=lonlat:");
+                staticMapUrl.append(location.getLongitude());
+                staticMapUrl.append(",");
+                staticMapUrl.append(location.getLatitude());
+                staticMapUrl.append("&zoom=14&marker=lonlat:");
+                staticMapUrl.append(location.getLongitude());
+                staticMapUrl.append(",");
+                staticMapUrl.append(location.getLatitude());
+                staticMapUrl.append(";color:%23ff0000;size:medium&apiKey=dcfc1dd590bd4f0d91a29a3253b604b0");
+
+                new LoadImageTask().execute(staticMapUrl.toString(), uri.toString());
             }
         } catch (ImageProcessingException | IOException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private Bitmap combineImages(Bitmap map, Bitmap background) {
+        Bitmap combinedBitmap = Bitmap.createBitmap(background.getWidth(), background.getHeight(), Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(combinedBitmap);
+
+        canvas.drawBitmap(background, 0, 0, null);
+        canvas.drawBitmap(map, (background.getWidth()/2), (background.getHeight()/2), null);
+
+        return combinedBitmap;
+    }
+
+    private class LoadImageTask extends AsyncTask<String, Void, Bitmap> {
+        @Override
+        protected Bitmap doInBackground(String... params) {
+            String imageUrl = params[0];
+            FutureTarget<Bitmap> futureTarget = Glide.with(MainActivity.this)
+                    .asBitmap()
+                    .load(imageUrl)
+                    .submit();
+
+            Bitmap result;
+
+            try {
+                result = combineImages(futureTarget.get(), BitmapFactory.decodeStream(getContentResolver().openInputStream(Uri.parse(params[1]))));
+            } catch (FileNotFoundException | ExecutionException | InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+
+            return result;
+        }
+
+        @Override
+        protected void onPostExecute(Bitmap bitmap) {
+            // Here, you can use the loaded bitmap on the UI thread
+            if (bitmap != null) {
+                Glide.with(MainActivity.this).load(bitmap).into(imageView);
+            }
+        }
+
     }
 }
